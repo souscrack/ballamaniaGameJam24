@@ -3,9 +3,7 @@ using System;
 
 public sealed class PropppBehavior : Component
 {
-    [Property]
-    [Category( "Stats" )]
-    [Range( 1f, 1000f, 10f )]
+
     public float BallSpeed { get; set; } = 500f;
 
     [Property]
@@ -34,7 +32,7 @@ public sealed class PropppBehavior : Component
         if (isPunched)
         {
             // Update position based on applied force
-            Transform.Position += currentVelocity * Time.Delta;
+           WorldPosition += currentVelocity * Time.Delta;
 
             // Decelerate the ball linearly
             float decelerationRate = initialPunchForce / punchDuration;
@@ -81,7 +79,7 @@ public sealed class PropppBehavior : Component
                     currentVelocity = new Vector3(currentVelocity.x, currentVelocity.y, Math.Abs(currentVelocity.Length));
 
                     // Repositionner la balle légèrement au-dessus du point de collision pour éviter de rester coincée
-                    Transform.Position += Vector3.Up * (hitbox.Center + 0.1f); // Ajustez le décalage en fonction de votre hitbox
+                   WorldPosition += Vector3.Up * (hitbox.Center + 0.1f); // Ajustez le décalage en fonction de votre hitbox
 
                     Log.Info("Collision with terrain detected. Adjusting position and velocity.");
                     break; // Sortir de la boucle après la première collision détectée

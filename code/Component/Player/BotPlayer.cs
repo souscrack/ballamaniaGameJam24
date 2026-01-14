@@ -24,7 +24,7 @@ public CapsuleCollider hitbox { get; set; }
 					(float)rand.NextDouble()
 					);
 					Log.Info(randomVector);
-				behavior.punch(randomVector );
+				behavior.punch(randomVector,  this.GameObject);
 			}
 		}
 	}

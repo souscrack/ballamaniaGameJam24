@@ -1,220 +1,172 @@
+// Bbplayer.cs
 using Sandbox;
 using Sandbox.Citizen;
 using System;
-using System.Runtime;
-using System.Runtime.CompilerServices;
-using System.Security.Cryptography;
-
+using Dodgeball.UI;
+using NetcoManager = Dodgeball.Network.NetcoManager;
+using Sandbox.UI;
 
 public sealed class Bbplayer : Component
 {
-	
-	[Property]
-	[Category( "Component" )]
-	public GameObject Camera { get; set; }
+	[Property, Category( "Component" )] public GameObject Camera { get; set; }
+	[Property, Category( "Component" )] public CharacterController CharacterController { get; set; }
+	[Property, Category( "Component" )] public CitizenAnimationHelper AnimationHelper { get; set; }
+	[Property, Category( "Component" )] public Model Citizenmodel { get; set; }
+	[Property, Category( "Component" )] public ModelPhysics Ragodll { get; set; }
+	[Property, Category( "Component" )] public GameObject Batte { get; set; }
 
-	[Property]
-	[Category( "Component" )]
-	public CharacterController CharacterController { get; set; }
+	[Property] public Vector3 EyePosition { get; set; }
+	[Property] public Vector3 CounterHitbox { get; set; }
+	[Property] public Vector3 CranePosition { get; set; }
 
-	[Property]
-	[Category( "Component" )]
-	public CitizenAnimationHelper AnimationHelper { get; set; }
-
-	[Property]
-	[Category( "Component" )]
-	public Model Citizenmodel { get; set; }
-
-	[Property]
-	public Vector3 EyePosition { get; set; }
-
-	[Property]
-	public Vector3 CounterHitbox { get; set; }
-
-	[Property]
-	[Category( "Component" )]
-	public ModelPhysics Ragodll { get; set; }
-
-	[Property]
-	[Category( "Component" )]
-	public GameObject Batte { get; set; }
-
-	[Property]
-	[Category( "Hitbox" )]
-	public CapsuleCollider Hitboxe { get; set; }
-
-
-	[Property]
-	[Category( "Hitbox" )]
-	public SphereCollider PunchZone { get; set; }
-
-	[Property]
-	public Vector3 CranePosition { get; set; }
-
+	[Property, Category( "Hitbox" )] public CapsuleCollider Hitboxe { get; set; }
+	[Property, Category( "Hitbox" )] public SphereCollider PunchZone { get; set; }
 
 	public Vector3 EyeWorldPostion => Transform.Local.PointToWorld( EyePosition );
-	/// <summary>
-	/// MOVEMENT
-	/// </summary>
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 400f )]
-	public float Walkspeed { get; set; } = 200f;
 
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 800f )]
-	public float Runspeed { get; set; } = 3500f;
+	[Property, Category( "Stats" ), Range( 0f, 400f )] public float Walkspeed { get; set; } = 200f;
+	[Property, Category( "Stats" ), Range( 0f, 800f )] public float Runspeed { get; set; } = 3500f;
+	[Property, Category( "Stats" ), Range( 0f, 800f )] public float JumpStrength { get; set; } = 400f;
 
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 800f )]
-	public float JumpStrength { get; set; } = 400f;
-
+	[Property, Category( "Stats" ), Range( 0f, 1000f )] public float PunchStrength { get; set; } = 1f;
+	[Property, Category( "Stats" ), Range( 0f, 5f)] public float PunchColdown { get; set; } = 0.5f;
+	[Property, Category( "Stats" ), Range( 0f, 200f)] public float PunchRange { get; set; } = 50f;
+	[Property, Category( "Stats" ), Range( 0f, 1000f)] public float DashRange { get; set; } = 500f;
 	public bool AvaibleDoubleJump = false;
-
-
-
-	/// <summary>
-	/// PUNCH SYSTEM
-	/// </summary>
-
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 1000f, 100f )]
-	public float PunchStrength { get; set; } = 1f;
-
-
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 5f, 0.1f )]
-	public float PunchColdown { get; set; } = 0.5f;
-
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 200f, 5f )]
-	public float PunchRange { get; set; } = 50f;
-
-	[Property]
-	[Category( "Stats" )]
-	[Range( 0f, 1000f, 5f )]
-	public float DashRange { get; set; } = 500f;
-
-	private bool isRagdolled = false; // Track the current state
-
-
 	public Angles EyeAngles { get; set; }
 
-	Transform _initialCameraTransform;
+	private Transform _initialCameraTransform;
+	private TimeSince _lastPunch;
+	private bool isRagdolled = false;
 
+	// ─────────────────────────────────────────────────────────────
+	// RPC VISUELS JOUEUR (OK de rester ici)
+	// ─────────────────────────────────────────────────────────────
 
-	TimeSince _lastPunch;
-
-		protected override void DrawGizmos()
+	[Rpc.Broadcast]
+	private void RpcPlayPunchAnim()
 	{
+		if ( AnimationHelper == null ) return;
 
+		AnimationHelper.HoldType = CitizenAnimationHelper.HoldTypes.Punch;
+		AnimationHelper.Target.Set( "b_attack", true );
+		_lastPunch = 0;
+	}
 
+	[Rpc.Broadcast]
+	private void RpcSetRagdoll( bool enable )
+	{
+		isRagdolled = enable;
+		ApplyRagdollState();
+	}
 
-		if ( !Gizmo.IsSelected ) return;
-		var draw = Gizmo.Draw;
-		//draw.LineSphere( EyePosition, 30f );
+	private void ApplyRagdollState()
+	{
+		if ( Ragodll != null ) Ragodll.Enabled = isRagdolled;
 
-		//draw.LineSphere( CounterHitbox, 10f );
-		//Gizmo.Draw.LineCylinder( EyePosition, EyePosition + Transform.Rotation.Forward * PunchRange, 5f, 5f, 10 );
-
-		//draw.LineSphere( startHit, 10f );
-		//draw.LineSphere( endHit, 10f );
-		//draw.LineCylinder( EyePosition, EyePosition + Transform.Rotation.Forward * PunchRange, 5f, 5f, 10 );
-
-		//draw.LineCylinder( CranePosition, CounterHitbox, 30f, 30f, 50 );
-
-
+		// batte collider off en ragdoll
+		if ( Batte != null )
+		{
+			var batCol = Batte.Components.Get<CapsuleCollider>();
+			if ( batCol != null ) batCol.Enabled = !isRagdolled;
+		}
 	}
 
 	protected override void OnStart()
 	{
+		// Caméra uniquement pour le joueur local
 		if ( Camera != null )
 		{
-
-
 			_initialCameraTransform = Camera.Transform.Local;
-
+			if ( IsProxy ) Camera.Enabled = false;
 		}
 
+		if ( IsProxy )
+			{
+				var hud = GameObject.GetComponentInChildren<GameHud>( includeDisabled: true, includeSelf: true );
+				if ( hud != null ) hud.Enabled = false;
 
-		if ( Components.TryGet<SkinnedModelRenderer>( out var skinnedModelRenderer ) )
+				var screen = GameObject.GetComponentInChildren<ScreenPanel>( includeDisabled: true, includeSelf: true );
+				if ( screen != null ) screen.Enabled = false;
+			}
+
+		// HUD / vêtements seulement local
+		if ( !IsProxy )
 		{
-			//a changer pour le multi ^^
-			var clothing = ClothingContainer.CreateFromLocalUser();
-			clothing.Apply( skinnedModelRenderer );
+			if ( GameHud.Instance == null )
+			{
+				Log.Info( "ROOT HUD ATTACHED" );
+			}
+
+			// vêtements seulement local user
+			if ( Components.TryGet<SkinnedModelRenderer>( out var smr ) )
+			{
+				var clothing = ClothingContainer.CreateFromLocalUser();
+				clothing.Apply( smr );
+			}
 		}
+
+		ApplyRagdollState();
 	}
-
-
-
-
 
 	protected override void OnUpdate()
 	{
+		// PROXY: pas d'input, pas de caméra
+		if ( IsProxy ) return;
+
 		EyeAngles += Input.AnalogLook;
 		EyeAngles = EyeAngles.WithPitch( MathX.Clamp( EyeAngles.pitch, -100f, 50f ) );
 		Transform.Rotation = Rotation.FromYaw( EyeAngles.yaw );
 
-
-
-		if ( Camera != null )
-		{
-			var cameraTransform = _initialCameraTransform.RotateAround( EyePosition, EyeAngles.WithYaw( 0f ) );
-			var cameraPosition = Transform.Local.PointToWorld( cameraTransform.Position );
-			var cameraTrace = Scene.Trace.Ray( EyeWorldPostion, cameraPosition )
-				.Size( 5f )
-				.IgnoreGameObjectHierarchy( GameObject )
-				.WithoutTags( "player" )
-				.Run();
-
-			Camera.Transform.Position = cameraTrace.EndPosition;
-			Camera.Transform.LocalRotation = cameraTransform.Rotation;
-		}
+		UpdateLocalCamera();
 
 		if ( Input.Pressed( "ragdoll" ) )
 		{
-			// Toggle the ragdoll state
 			isRagdolled = !isRagdolled;
-			ragdoll( isRagdolled );
+			ApplyRagdollState();
+			RpcSetRagdoll( isRagdolled );
 		}
-
 	}
 
+	private void UpdateLocalCamera()
+	{
+		if ( Camera == null ) return;
+
+		var cameraTransform = _initialCameraTransform.RotateAround( EyePosition, EyeAngles.WithYaw( 0f ) );
+		var cameraPosition = Transform.Local.PointToWorld( cameraTransform.Position );
+
+		var cameraTrace = Scene.Trace.Ray( EyeWorldPostion, cameraPosition )
+			.Size( 5f )
+			.IgnoreGameObjectHierarchy( GameObject )
+			.WithoutTags( "player" )
+			.Run();
+
+		Camera.Transform.Position = cameraTrace.EndPosition;
+		Camera.Transform.LocalRotation = cameraTransform.Rotation;
+	}
 
 	protected override void OnFixedUpdate()
 	{
-		base.OnFixedUpdate();
 		if ( CharacterController == null ) return;
+
+		// Proxy : pas d'input, mais anim OK
+		if ( IsProxy )
+		{
+			UpdateAnimations();
+			return;
+		}
 
 		if ( CharacterController.IsOnGround )
 		{
-
 			var wishSpeed = Input.Down( "Run" ) ? Runspeed : Walkspeed;
 			var wishvelocity = Input.AnalogMove.Normal * wishSpeed * Transform.Rotation;
-
 			CharacterController.Accelerate( wishvelocity );
 		}
 
-
-
 		jumpMethod();
-
 		CharacterController.Move();
 
-		if ( AnimationHelper != null )
-		{
-			AnimationHelper.IsGrounded = CharacterController.IsOnGround;
-			AnimationHelper.WithVelocity( CharacterController.Velocity );
-
-			if ( _lastPunch >= 5f )
-				AnimationHelper.HoldType = CitizenAnimationHelper.HoldTypes.None;
-
-		}
+		UpdateAnimations();
 
 		if ( Input.Pressed( "Punch" ) && _lastPunch >= PunchColdown )
 		{
@@ -223,164 +175,159 @@ public sealed class Bbplayer : Component
 
 		if ( Input.Pressed( "dash" ) )
 		{
-			dash();
-
+			//dash();
+			dead();
 		}
-
-
-
-
 
 		doesHit();
 	}
 
-	public void dead()
+	private void UpdateAnimations()
 	{
-		Log.Info( "MORT" );
-		Ragodll.Enabled = true;
-		Batte.Components.Get<CapsuleCollider>().Enabled = false;
+		if ( AnimationHelper == null ) return;
+
+		AnimationHelper.IsGrounded = CharacterController.IsOnGround;
+		AnimationHelper.WithVelocity( CharacterController.Velocity );
+		if ( _lastPunch >= 5f ) AnimationHelper.HoldType = CitizenAnimationHelper.HoldTypes.None;
 	}
 
-	public Boolean doesHit()
+	public bool doesHit()
 	{
-		if (Hitboxe != null)
-   		{
-        foreach (Collider hit in Hitboxe.Touching)
-        {
-			if ( hit.GameObject.Components.TryGet<Behavior>( out var behavior ) )
+		if ( Hitboxe != null )
+		{
+			foreach ( Collider hit in Hitboxe.Touching )
 			{
-				Log.Info( "Hitted" );               //dead();
-				return true;
+				if ( hit.GameObject.Components.TryGet<Behavior>( out var behavior ) )
+				{
+					Log.Info( "Hitted" );
+					dead();
+					return true;
+				}
 			}
-		}
 		}
 		return false;
 	}
 
-public void dash()
-{
-    var start = EyeWorldPostion;
-    var direction = EyeAngles.Forward;
-    var end = start + (direction * DashRange);
+	public void dash()
+	{
+		var start = EyeWorldPostion;
+		var direction = EyeAngles.Forward;
+		var end = start + (direction * DashRange);
 
-    var dashTrace = Scene.Trace
-        .FromTo(EyeWorldPostion, EyeWorldPostion + EyeAngles.Forward * DashRange)
-        .Size(100f)
-        .IgnoreGameObjectHierarchy(GameObject)
-        .Run();
+		var dashTrace = Scene.Trace
+			.FromTo( EyeWorldPostion, EyeWorldPostion + EyeAngles.Forward * DashRange )
+			.Size( 100f )
+			.IgnoreGameObjectHierarchy( GameObject )
+			.Run();
 
-    if (dashTrace.Hit)
-    {
-        // Téléporter à la position de l'objet frappé, en conservant la même hauteur
-        Transform.LocalPosition = new Vector3(dashTrace.HitPosition.x, dashTrace.HitPosition.y, dashTrace.HitPosition.z);
-        Log.Info(dashTrace.HitPosition);
-    }
-    else
-    {
-        // Téléporter à la distance maximale DashRange dans la direction du regard, en conservant la même hauteur
-        Transform.LocalPosition = new Vector3(end.x, end.y, end.z);
-    }
-}
-
+		if ( dashTrace.Hit )
+			LocalPosition = dashTrace.HitPosition;
+		else
+			LocalPosition = end;
+	}
 
 	public void jumpMethod()
 	{
-
 		if ( CharacterController.IsOnGround )
 		{
 			AvaibleDoubleJump = true;
 			CharacterController.Acceleration = 20f;
-			CharacterController.ApplyFriction( 10f, 20f);
+			CharacterController.ApplyFriction( 10f, 20f );
 
 			if ( Input.Down( "Jump" ) )
 			{
 				CharacterController.Punch( Vector3.Up * JumpStrength );
-				if ( AnimationHelper != null )
-					AnimationHelper.TriggerJump();
-
+				if ( AnimationHelper != null ) AnimationHelper.TriggerJump();
 			}
-
 		}
-
-
 		else
 		{
 			CharacterController.Acceleration = 3f;
 			CharacterController.Velocity += Scene.PhysicsWorld.Gravity * Time.Delta;
 
-			if ( Input.Pressed( "Jump" ) )
+			if ( Input.Pressed( "Jump" ) && AvaibleDoubleJump )
 			{
-				if ( AvaibleDoubleJump )
-				{
-					AvaibleDoubleJump = false;
-					CharacterController.Velocity = CharacterController.Velocity.WithZ( JumpStrength );
-					if ( AnimationHelper != null )
-						//triger double jump when implemented
-						AnimationHelper.TriggerJump();
-				}
+				AvaibleDoubleJump = false;
+				CharacterController.Velocity = CharacterController.Velocity.WithZ( JumpStrength );
+				if ( AnimationHelper != null ) AnimationHelper.TriggerJump();
 			}
 		}
-
-
-
 	}
 
 	public void Punch()
 	{
+		// feedback local immédiat
 		if ( AnimationHelper != null )
 		{
-
 			AnimationHelper.HoldType = CitizenAnimationHelper.HoldTypes.Punch;
 			AnimationHelper.Target.Set( "b_attack", true );
-
-
 		}
-		if ( PunchZone == null ) return;
 
-		foreach (Collider hit in PunchZone.Touching)
-        {
+		// réplication anim pour les autres
+		RpcPlayPunchAnim();
+
+		if ( PunchZone == null ) return;
+		if ( Camera == null )
+		{
+			Log.Warning( "Camera non assignée, punch annulé !" );
+			return;
+		}
+
+		Vector3 punchDirection = Camera.Transform.Rotation.Forward;
+		foreach ( Collider hit in PunchZone.Touching )
+		{
 			if ( hit.GameObject.Components.TryGet<Behavior>( out var behavior ) )
 			{
 				Log.Info( "punched" );
-				behavior.punch( EyeAngles.Forward );
+				behavior.punch( punchDirection, this.GameObject );
 			}
-
 			if ( hit.GameObject.Components.TryGet<PropppBehavior>( out var propbehavior ) )
 			{
-				propbehavior.punch( EyeAngles.Forward , PunchStrength);
+				propbehavior.punch( punchDirection, PunchStrength );
 			}
 		}
-
-
-
 		_lastPunch = 0;
-
 	}
+public void dead()
+{
+	Log.Info( "MORT" );
 
-	public void ragdoll( bool enable )
+	var owner = GameObject.Network.OwnerConnection ?? Connection.Local;
+var id = owner.Id.ToString("N");
+NetcoManager.RpcSetDeadState( id, true );
+
+	isRagdolled = true;
+	ApplyRagdollState();
+	RpcSetRagdoll( true );
+}
+
+public void ServerRespawnAt( Vector3 pos, Rotation rot )
+{
+	// Appelé par le serveur -> ordonne au owner de se replacer
+	RpcRespawn( pos, rot );
+}
+
+
+
+[Rpc.Owner]
+private void RpcRespawn( Vector3 pos, Rotation rot )
+{
+	// replace le joueur
+	Transform.Position = pos;
+	Transform.Rotation = rot;
+
+	// enlève ragdoll / état mort
+	isRagdolled = false;
+	ApplyRagdollState();
+	RpcSetRagdoll( false );
+
+	// si tu veux forcer le contrôleur à se recalculer
+	if ( CharacterController != null )
 	{
-		if ( enable )
-		{
-			Log.Info( "Ragdolled" );
-			Ragodll.Enabled = true;
-			Batte.Components.Get<CapsuleCollider>().Enabled = false;
-		}
-		else
-		{
-			Log.Info( "Retour normal" );
-			Ragodll.Enabled = false;
-			Batte.Components.Get<CapsuleCollider>().Enabled = true;
-		}
+		CharacterController.Velocity = Vector3.Zero;
 	}
+}
 
-	protected override void OnAwake()
-	{
-		base.OnAwake();
-	}
 
-	protected override void OnEnabled()
-	{
-		base.OnEnabled();
-	}
 
 }
